@@ -42,8 +42,8 @@ The pipeline is divided into several key phases:
 
 1. **Clone the repository:**
    ```bash
-   git clone <your-repo-url>
-   cd <your-repo-directory>
+   git clone https://github.com/GauraviSingh7/Stegnography.git
+   cd Stegnography
    ```
 
 2. **Install the required Python libraries:**
