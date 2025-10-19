@@ -65,7 +65,7 @@ The pipeline is divided into several key phases:
 ## ▶️ Running the Script
 Execute the script from your terminal:
 ```bash
-python bitstreamWorking.py
+python singleCharac.py
 ```
 To change the secret message, modify the `secret_message` variable inside the `if __name__ == '__main__':` block at the bottom of the script.
 
@@ -96,7 +96,7 @@ This method's ability to store information is determined by the **probability of
 ## 📂 File Structure
 ```
 .
-├── bitstreamWorking.py              # The main Python script
+├── singleCharac.py              # The main Python script
 ├── ontology_with_probabilities.json    # The probabilistic knowledge graph
 ├── .env                                # Your environment file for API keys
 └── README.md                           # This file
