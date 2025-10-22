@@ -124,7 +124,7 @@ def encode_message_chunked(secret_message: str, ontology_data: dict,
     Returns:
         (list_of_entities, metadata_dict, chunks_list)
     """
-    from bitstreamWorking import text_to_bitstream, select_entity
+    from singleCharac import text_to_bitstream, select_entity
     
     # Convert message to bitstream
     secret_bits = text_to_bitstream(secret_message)
@@ -205,7 +205,7 @@ def decode_chunked_stego_text(stego_sentences: list, ontology_data: dict,
     Returns:
         The decoded original message
     """
-    from bitstreamWorking import extract_entity_gemini, decode_bitstream, bitstream_to_text
+    from singleCharac import extract_entity_gemini, decode_bitstream, bitstream_to_text
     
     decoded_chunks = []
     

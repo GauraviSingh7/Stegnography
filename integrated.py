@@ -7,7 +7,7 @@ import re
 import time
 
 # Import your existing functions from bitstreamWorking.py
-from bitstreamWorking import (
+from singleCharac import (
     text_to_bitstream, bitstream_to_text,
     select_entity, generate_conversation_gemini,
     check_conversation_quality, regenerate_with_feedback,
@@ -106,7 +106,7 @@ def main_chunked_encoding_decoding():
     # ========================================
     
     # Test with a longer message that requires chunking
-    secret_message = "Hello World!"  # 12 characters = 96 bits
+    secret_message = "Hello!" 
     # For testing: secret_message = "AI"  # 2 characters = 16 bits
     
     print("="*70)
