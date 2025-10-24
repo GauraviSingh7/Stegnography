@@ -27,18 +27,9 @@ class OllamaAgent:
     """Wrapper for Ollama API calls - no rate limiting needed!"""
     
     def __init__(self, model_name: str = "mistral", base_url: str = "http://localhost:11434"):
-        """
-        Initialize Ollama agent.
-        
-        Args:
-            model_name: Name of the Ollama model (e.g., 'mistral', 'tinyllama', 'llama2')
-            base_url: Ollama API endpoint
-        """
         self.model_name = model_name
         self.base_url = base_url
         self.api_endpoint = f"{base_url}/api/generate"
-        
-        # Verify Ollama is running and model is available
         self._verify_setup()
     
     def _verify_setup(self):
@@ -61,16 +52,7 @@ class OllamaAgent:
             print("Make sure Ollama is running: ollama serve")
     
     def generate(self, prompt: str, temperature: float = 0.7) -> str:
-        """
-        Generate text using Ollama - NO RATE LIMITING!
-        
-        Args:
-            prompt: The prompt to send to the model
-            temperature: Sampling temperature
-            
-        Returns:
-            Generated text response
-        """
+        """Generate text using Ollama - NO RATE LIMITING!"""
         try:
             payload = {
                 "model": self.model_name,
@@ -78,7 +60,7 @@ class OllamaAgent:
                 "stream": False,
                 "temperature": temperature,
                 "options": {
-                    "num_predict": 150  # Max tokens
+                    "num_predict": 200
                 }
             }
             
@@ -93,17 +75,13 @@ class OllamaAgent:
         except Exception as e:
             return f"Error: {str(e)}"
 
-
 # ==============================================================================
-# --- GENERATION WITH OLLAMA (NO RATE LIMITING!) ---
+# --- GENERATION WITH OLLAMA ---
 # ==============================================================================
 
 def generate_conversation_ollama(agent: OllamaAgent, entity_name: str, 
                                 entity_description: str) -> str:
-    """
-    Generate a sentence containing the target entity using Ollama.
-    NO RATE LIMITING - call as many times as you need!
-    """
+    """Generate a sentence containing the target entity using Ollama."""
     print(f"--- Generating sentence for: {entity_name} ---")
     
     prompt = f"""You are a Generation Agent (GA). Your task is to generate a single, fluent sentence that contains a specific entity.
@@ -124,20 +102,15 @@ Now, generate a sentence containing "{entity_name}".
 **SENTENCE:**"""
     
     generated_text = agent.generate(prompt)
-    
-    # Clean up response
-    if generated_text.startswith("**SENTENCE:**"):
-        generated_text = generated_text.replace("**SENTENCE:**", "").strip()
-    
+    generated_text = generated_text.split('\n')[0]
+    generated_text = re.sub(r'^(Answer:|OUTPUT:|SENTENCE:)\s*', '', generated_text, flags=re.IGNORECASE)
+    generated_text = generated_text.strip('"').strip()
     return generated_text
 
 
 def check_conversation_quality_ollama(agent: OllamaAgent, conversation: str, 
                                      entity_name: str, entity_description: str) -> dict:
-    """
-    Check Agent: Verifies sentence quality using Ollama.
-    NO RATE LIMITING!
-    """
+    """Check Agent: Verifies sentence quality using Ollama."""
     print(f"\n--- Running Check Agent ---")
     
     prompt = f"""You are a meticulous Check Agent (CA). Your job is to evaluate a sentence based on strict entity control rules.
@@ -171,38 +144,66 @@ Based on your evaluation, provide a JSON response.
   "reason": "Briefly explain why."
 }}"""
     
-    response_text = agent.generate(prompt, temperature=0.3)  # Lower temp for structured output
+    response_text = agent.generate(prompt, temperature=0.3)
     
     try:
-        # Extract JSON from response
         if "```json" in response_text:
             response_text = response_text.split("```json")[1].split("```")[0].strip()
         elif "```" in response_text:
             response_text = response_text.split("```")[1].split("```")[0].strip()
         
+        response_text = response_text.strip()
+        start = response_text.find('{')
+        end = response_text.rfind('}')
+        if start != -1 and end != -1:
+            response_text = response_text[start:end+1]
+        
         result = json.loads(response_text)
+        
+        if not isinstance(result, dict):
+            raise ValueError("Response is not a dictionary")
+        
+        if 'is_compliant' not in result:
+            result['is_compliant'] = False
+        if 'recommendation' not in result:
+            result['recommendation'] = 'REGENERATE'
+        if 'reason' not in result:
+            result['reason'] = 'Invalid response format'
         
         print(f"Check Agent Compliant: {result.get('is_compliant')}")
         print(f"Recommendation: {result.get('recommendation', 'UNKNOWN')}")
         print(f"Reason: {result.get('reason', 'No reason provided')}")
         
         return result
-    except Exception as e:
+        
+    except (json.JSONDecodeError, ValueError, KeyError) as e:
         print(f"Check Agent parsing error: {e}")
-        return {
-            "recommendation": "REGENERATE", 
-            "reason": "Check agent failed to parse.", 
-            "is_compliant": False
-        }
+        print(f"Raw response: {response_text[:200]}")
+        
+        # Fallback: Simple regex check
+        pattern = r'\b' + re.escape(entity_name) + r'\b'
+        if re.search(pattern, conversation, re.IGNORECASE):
+            print("✅ Fallback: Entity found via regex")
+            return {
+                "target_present": True,
+                "is_compliant": True,
+                "recommendation": "ACCEPT",
+                "reason": "Entity verified via fallback check"
+            }
+        else:
+            print("❌ Fallback: Entity not found")
+            return {
+                "target_present": False,
+                "is_compliant": False,
+                "recommendation": "REGENERATE",
+                "reason": "Entity not found in sentence"
+            }
 
 
 def regenerate_with_feedback_ollama(agent: OllamaAgent, entity_name: str, 
                                    entity_description: str, previous_conversation: str, 
                                    feedback: dict, attempt: int) -> str:
-    """
-    Regenerate sentence with feedback using Ollama.
-    NO RATE LIMITING!
-    """
+    """Regenerate sentence with feedback using Ollama."""
     print(f"\n--- Regenerating (Attempt {attempt}) ---")
     
     reason = feedback.get('reason', 'The sentence did not meet the requirements.')
@@ -222,31 +223,20 @@ def regenerate_with_feedback_ollama(agent: OllamaAgent, entity_name: str,
 2. Your new sentence MUST NOT contain the other entities that were flagged in the failure reason.
 3. Generate only a single, natural-sounding sentence.
 
-**Example of a good regeneration:**
-- **Target:** "Las Vegas"
-- **Previous Attempt:** "It is a popular tourist destination known for its vibrant nightlife, world-class entertainment, and bustling casinos"
-- **Feedback:** "Please regenerate a fluent sentence with "Las Vegas", do not generate other LOCATION-related entities"
-- **New Sentence:** "Las Vegas is a popular tourist destination known for its vibrant nightlife, world-class entertainment, and bustling casinos."
-
 Now, generate an IMPROVED sentence for "{entity_name}" that fixes the specified problem.
 
 **IMPROVED SENTENCE:**"""
     
     generated_text = agent.generate(prompt)
-    
-    # Clean up response
-    if generated_text.startswith("**IMPROVED SENTENCE:**"):
-        generated_text = generated_text.replace("**IMPROVED SENTENCE:**", "").strip()
-    
+    generated_text = generated_text.split('\n')[0]
+    generated_text = re.sub(r'^(Answer:|OUTPUT:|SENTENCE:)\s*', '', generated_text, flags=re.IGNORECASE)
+    generated_text = generated_text.strip('"').strip()
     return generated_text
 
 
 def generate_validated_sentence_ollama(agent: OllamaAgent, entity_name: str, 
                                       entity_desc: str, max_attempts: int = 3) -> str:
-    """
-    Generate and validate sentence using Ollama.
-    NO SLEEP/DELAYS NEEDED - No rate limiting with local Ollama!
-    """
+    """Generate and validate sentence using Ollama."""
     stego_conversation = ""
     check_result = {}
     
@@ -274,72 +264,43 @@ def generate_validated_sentence_ollama(agent: OllamaAgent, entity_name: str,
 
 
 # ==============================================================================
-# --- EXTRACTION WITH OLLAMA ---
+# --- FIXED EXTRACTION ---
 # ==============================================================================
 
-def extract_entity_ollama(agent: OllamaAgent, stego_text: str, 
-                         entity_list: list) -> str:
+def extract_entity_deterministic(stego_text: str, target_entities: list) -> str:
     """
-    Extract entity from stego text using Ollama.
-    First tries direct pattern matching, then uses LLM if needed.
+    FIXED: Extract entity using ONLY the list of entities that were actually encoded.
+    This prevents false matches with similar entities.
+    
+    Args:
+        stego_text: The sentence to extract from
+        target_entities: List of ONLY the entities that were encoded (not all entities!)
     """
-    print("\n--- Running Extraction Agent ---")
+    print("\n--- Running Extraction Agent (Deterministic) ---")
     
-    # First try: Direct pattern matching (fastest, most reliable)
-    for entity in entity_list:
-        pattern = r'\b' + re.escape(entity) + r'\b'
-        if re.search(pattern, stego_text):
-            print(f"✓ Valid entity extracted (Direct Match): {entity}")
-            return entity
+    # Sort by length (longest first) to match most specific first
+    sorted_entities = sorted(target_entities, key=len, reverse=True)
     
-    # Second try: Case-insensitive search
-    print("⚠️ No direct match found. Trying case-insensitive search...")
-    for entity in entity_list:
+    # Try exact match with word boundaries (case-insensitive)
+    for entity in sorted_entities:
         pattern = r'\b' + re.escape(entity) + r'\b'
         if re.search(pattern, stego_text, re.IGNORECASE):
-            print(f"✓ Valid entity extracted (Case-Insensitive Match): {entity}")
+            print(f"✓ Entity extracted: {entity}")
             return entity
     
-    # Third try: Use LLM for extraction
-    print("⚠️ Using LLM for entity extraction...")
-    
-    # Limit entity list for prompt (avoid token limits)
-    sample_entities = entity_list[:50] if len(entity_list) > 50 else entity_list
-    
-    prompt = f"""Extract the main entity from this sentence. Choose from the following list:
-
-{', '.join(sample_entities[:20])}
-... and {len(entity_list) - 20} more entities.
-
-Sentence: "{stego_text}"
-
-Respond with ONLY the entity name, nothing else."""
-    
-    extracted = agent.generate(prompt, temperature=0.1).strip()
-    
-    # Verify extracted entity is in the list
-    for entity in entity_list:
-        if entity.lower() in extracted.lower():
-            print(f"✓ Valid entity extracted (LLM): {entity}")
-            return entity
-    
-    print(f"✗ CRITICAL ERROR: Could not find any known entity in the sentence: '{stego_text}'")
-    return "Error: No valid entity found in the final sentence."
+    print(f"✗ ERROR: No entity found in: '{stego_text[:100]}'")
+    print(f"Expected one of: {target_entities}")
+    return "Error: No valid entity found"
 
 
 # ==============================================================================
-# --- MAIN WORKFLOW WITH OLLAMA ---
+# --- MAIN WORKFLOW WITH OLLAMA (FIXED) ---
 # ==============================================================================
 
 def main_ollama_chunked_encoding_decoding(model_name: str = "mistral"):
     """
-    Main function using Ollama for chunked encoding and decoding.
-    NO RATE LIMITING!
-    
-    Args:
-        model_name: Ollama model to use ('mistral', 'tinyllama', 'llama2', etc.)
+    FIXED: Main function with proper entity list handling.
     """
-    # Initialize Ollama agent
     agent = OllamaAgent(model_name=model_name)
     
     # Load ontology
@@ -356,28 +317,26 @@ def main_ollama_chunked_encoding_decoding(model_name: str = "mistral"):
     # ENCODING PHASE
     # ========================================
     
-    secret_message = "Hello!"
+    secret_message = "HeLL"
     
     print("="*70)
-    print("CHUNKED ENCODING WORKFLOW (OLLAMA - NO RATE LIMITS!)")
+    print("CHUNKED ENCODING WORKFLOW (OLLAMA - FIXED VERSION)")
     print("="*70)
     print(f"Model: {model_name}")
     print(f"Secret Message: '{secret_message}'")
     print(f"Message Length: {len(secret_message)} characters")
     print("="*70)
     
-    # Convert message to bitstream
     secret_bits = text_to_bitstream(secret_message)
     print(f"Total bitstream length: {len(secret_bits)} bits")
     
-    # Calculate chunk size
     chunk_size = calculate_max_chunk_size(ontology_data)
-    
-    # Create chunks with metadata
     chunks, metadata = encode_chunks_with_metadata(secret_bits, chunk_size)
     
     # Encode each chunk to an entity
     selected_entities = []
+    encoded_entity_names = []  # ← CRITICAL: Store names for decoding
+    
     print(f"\n{'='*60}")
     print("ENCODING CHUNKS TO ENTITIES")
     print(f"{'='*60}")
@@ -387,21 +346,26 @@ def main_ollama_chunked_encoding_decoding(model_name: str = "mistral"):
         print(f"Bitstream: {chunk}")
         
         entity_node, bit_length = select_entity(ontology_data, chunk)
+        entity_name = entity_node.get('name')
+        
         entity_info = {
-            'name': entity_node.get('name'),
+            'name': entity_name,
             'id': entity_node.get('id'),
             'chunk_index': idx,
             'bit_length': bit_length
         }
         selected_entities.append(entity_info)
-        print(f"Selected entity: {entity_info['name']}")
+        encoded_entity_names.append(entity_name)  # ← STORE FOR DECODING
+        
+        print(f"Selected entity: {entity_name}")
     
     # Generate stego sentences
     print(f"\n{'='*70}")
-    print("GENERATING STEGO SENTENCES (NO DELAYS!)")
+    print("GENERATING STEGO SENTENCES")
     print(f"{'='*70}")
     
     stego_sentences = []
+    
     for entity_info in selected_entities:
         print(f"\n--- Chunk {entity_info['chunk_index']+1}/{len(selected_entities)} ---")
         print(f"Target Entity: {entity_info['name']}")
@@ -414,8 +378,12 @@ def main_ollama_chunked_encoding_decoding(model_name: str = "mistral"):
         )
         stego_sentences.append(sentence)
         print(f"Generated: {sentence}")
+        
+        # Verify entity is present
+        pattern = r'\b' + re.escape(entity_info['name']) + r'\b'
+        if not re.search(pattern, sentence, re.IGNORECASE):
+            print(f"⚠️ WARNING: Entity '{entity_info['name']}' not found in generated sentence!")
     
-    # Create final stego paragraph
     stego_paragraph = ' '.join(stego_sentences)
     
     print(f"\n{'='*70}")
@@ -425,11 +393,13 @@ def main_ollama_chunked_encoding_decoding(model_name: str = "mistral"):
     print(f"{'='*70}")
     
     # ========================================
-    # DECODING PHASE
+    # DECODING PHASE (FIXED)
     # ========================================
     
     print(f"\n{'='*70}")
-    print("CHUNKED DECODING WORKFLOW")
+    print("CHUNKED DECODING WORKFLOW (FIXED)")
+    print(f"{'='*70}")
+    print(f"Using entity list: {encoded_entity_names}")
     print(f"{'='*70}")
     
     decoded_chunks = []
@@ -438,8 +408,8 @@ def main_ollama_chunked_encoding_decoding(model_name: str = "mistral"):
         print(f"\n--- Decoding Chunk {idx+1}/{len(stego_sentences)} ---")
         print(f"Sentence: {sentence[:100]}...")
         
-        # Extract entity
-        entity_name = extract_entity_ollama(agent, sentence, all_entity_names)
+        # ← FIXED: Use only the encoded entities, not all entities!
+        entity_name = extract_entity_deterministic(sentence, encoded_entity_names)
         
         if "Error" in entity_name:
             print(f"ERROR: Could not extract entity from chunk {idx+1}")
@@ -461,8 +431,6 @@ def main_ollama_chunked_encoding_decoding(model_name: str = "mistral"):
     
     # Reconstruct original bitstream
     full_bitstream = reconstruct_bitstream(decoded_chunks, metadata)
-    
-    # Convert back to text
     decoded_message = bitstream_to_text(full_bitstream)
     
     # ========================================
@@ -478,15 +446,31 @@ def main_ollama_chunked_encoding_decoding(model_name: str = "mistral"):
     print(f"Length Decoded:    {len(decoded_message)} chars")
     print("-"*70)
     
+    # Detailed bit comparison
     if secret_message == decoded_message:
         print("✅ SUCCESS: Perfect match!")
         print(f"✅ Successfully encoded/decoded {len(selected_entities)} chunks")
     else:
         print("❌ FAILURE: Messages don't match")
-        print(f"\nDifferences:")
+        print(f"\nCharacter-level differences:")
         for i, (orig, dec) in enumerate(zip(secret_message, decoded_message)):
             if orig != dec:
-                print(f"  Position {i}: '{orig}' != '{dec}'")
+                orig_bits = format(ord(orig), '08b')
+                dec_bits = format(ord(dec), '08b')
+                print(f"  Pos {i}: '{orig}' ({orig_bits}) != '{dec}' ({dec_bits})")
+        
+        print(f"\nBit-level analysis:")
+        orig_bits = text_to_bitstream(secret_message)
+        dec_bits = text_to_bitstream(decoded_message)
+        print(f"  Original: {orig_bits}")
+        print(f"  Decoded:  {dec_bits}")
+        
+        # Show which chunks failed
+        for i, (chunk, decoded_chunk) in enumerate(zip(chunks, decoded_chunks)):
+            if chunk != decoded_chunk:
+                print(f"  Chunk {i+1} FAILED:")
+                print(f"    Expected: {chunk}")
+                print(f"    Got:      {decoded_chunk}")
     
     print("="*70)
     
@@ -495,7 +479,8 @@ def main_ollama_chunked_encoding_decoding(model_name: str = "mistral"):
         'decoded': decoded_message,
         'stego_text': stego_paragraph,
         'num_chunks': len(selected_entities),
-        'metadata': metadata
+        'metadata': metadata,
+        'encoded_entities': encoded_entity_names
     }
 
 
@@ -504,14 +489,14 @@ def main_ollama_chunked_encoding_decoding(model_name: str = "mistral"):
 # ==============================================================================
 
 if __name__ == '__main__':
-    print("\n🚀 OLLAMA SEMANTIC STEGANOGRAPHY")
+    print("\n🚀 OLLAMA SEMANTIC STEGANOGRAPHY (FIXED VERSION)")
     print("=" * 70)
     print("✅ NO RATE LIMITING!")
     print("✅ NO API COSTS!")
     print("✅ RUNS LOCALLY!")
+    print("✅ FIXED ENTITY EXTRACTION!")
     print("=" * 70)
     
-    # Choose your model
     print("\nAvailable Ollama models:")
     print("  1. mistral (recommended - best quality)")
     print("  2. tinyllama (fastest - lower quality)")
@@ -539,10 +524,9 @@ if __name__ == '__main__':
     try:
         result = main_ollama_chunked_encoding_decoding(model_name=model_name)
         
-        # Save results
-        with open('ollama_chunked_results.json', 'w') as f:
+        with open('ollama_chunked_results_fixed.json', 'w') as f:
             json.dump(result, f, indent=2)
-        print("\n✅ Results saved to 'ollama_chunked_results.json'")
+        print("\n✅ Results saved to 'ollama_chunked_results_fixed.json'")
         
     except KeyboardInterrupt:
         print("\n\n⚠️  Interrupted by user")

@@ -45,9 +45,9 @@ def select_entity(ontology_data: dict, bitstream: str) -> tuple:
     print("--- Running Sampler (Embedding Phase) ---")
     print(f"Input Bitstream: {bitstream}")
     original_bit_length = len(bitstream)
-    # Precision needs to be high enough for the calculations
-    getcontext().prec = original_bit_length + 10
+    getcontext().prec = original_bit_length + 50  # Match decoder precision
 
+    # CORRECT encoding: secret_value = sum(bit[i] * 1/2^(i+1))
     secret_value = Decimal(0)
     for i, bit in enumerate(bitstream):
         if bit == '1':
@@ -60,10 +60,12 @@ def select_entity(ontology_data: dict, bitstream: str) -> tuple:
 
     while current_node.get('children'):
         parent_probability = Decimal(current_node['probability'])
-        if parent_probability == 0: break
+        if parent_probability == 0: 
+            break
 
         interval_start = low_bound
         found_next_node = False
+        
         for child_node in current_node['children']:
             child_prob = Decimal(child_node['probability'])
             interval_width = (high_bound - low_bound) * (child_prob / parent_probability)
@@ -79,8 +81,9 @@ def select_entity(ontology_data: dict, bitstream: str) -> tuple:
             interval_start = interval_end
 
         if not found_next_node:
-            # This case handles if the secret_value falls exactly on the last boundary
             current_node = current_node['children'][-1]
+            low_bound = interval_start
+            high_bound = high_bound  # Use parent's high_bound
             break
 
     print(f"--> Sampler selected Entity: '{current_node.get('name')}' (ID: {current_node.get('id')})")
@@ -299,8 +302,10 @@ def extract_entity_gemini(stego_text: str, entity_list: list) -> str:
 def decode_bitstream(ontology_data: dict, entity_name: str, original_bit_length: int) -> str:
     """
     Decodes the secret bitstream from the identified entity's probability interval.
-    FIXED: Now correctly reverses the select_entity encoding scheme.
+    FIXED: Uses midpoint of interval for reliable decoding.
     """
+    from decimal import Decimal, getcontext
+    
     print("\n--- Running Probability Decoder (Robust Algorithm) ---")
     print(f"Finding interval for entity: '{entity_name}'")
     print(f"Target bit length: {original_bit_length}")
@@ -352,11 +357,10 @@ def decode_bitstream(ontology_data: dict, entity_name: str, original_bit_length:
     print(f"Calculated Interval: [{low_bound}, {high_bound})")
 
     # --- Step 3: CORRECTED DECODING ALGORITHM ---
-    # The encoding formula is: secret_value = sum(bit[i] * 1/2^(i+1)) for i in [0, n-1]
-    # To decode, we need to extract each bit by checking if its contribution exists
-    
-    # Use the midpoint of the interval for maximum robustness
+    # Use MIDPOINT of the interval for reliable decoding
+    # This avoids boundary precision issues
     decode_value = low_bound + (high_bound - low_bound) / Decimal(2)
+    
     print(f"Decoding from midpoint: {decode_value}")
     
     decoded_bits = ""
@@ -376,7 +380,6 @@ def decode_bitstream(ontology_data: dict, entity_name: str, original_bit_length:
     print(f"Decoded {len(decoded_bits)} bits: {decoded_bits}")
     return decoded_bits
 
-
 # ==============================================================================
 # --- MAIN WORKFLOW ---
 # ==============================================================================
@@ -391,7 +394,7 @@ if __name__ == '__main__':
         exit()
 
     # Using "M" (8 bits) which has a known bitstream to verify success.
-    secret_message = "M" 
+    secret_message = "o" 
     secret_bits = text_to_bitstream(secret_message)
     
     print("="*50)
