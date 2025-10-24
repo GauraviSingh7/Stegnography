@@ -170,7 +170,13 @@ Available Ollama models:
 
 ---
 
-## 🧠 Future Work
-- Integrate **multi-entity steganography** for larger data capacity.
-- Add **semantic consistency checks** using BERT-based verification.
-- Explore **robust decoding under noisy transformations** (e.g., paraphrasing).
+## ⚙️ Current Limitations & Work in Progress
+
+This project is currently **a work in progress**. While the core encoding and decoding pipeline functions correctly, it has some known issues:
+
+- The system currently works reliably only for a few letters (e.g., simple single-character messages like 'A', 'M', or 'H').
+- For other characters or longer messages, decoding errors may occur due to numerical precision loss in floating-point probability intervals.
+- Some entities in the ontology have overlapping probability ranges, which can lead to incorrect entity selection.
+- Work is ongoing to extend support for **multi-character and multi-entity steganography**, along with **robust decoding** under paraphrasing or entity reordering.
+
+These limitations are being addressed in the next phase of development.
