@@ -317,7 +317,7 @@ def main_ollama_chunked_encoding_decoding(model_name: str = "mistral"):
     # ENCODING PHASE
     # ========================================
     
-    secret_message = "HeLL"
+    secret_message = "H"
     
     print("="*70)
     print("CHUNKED ENCODING WORKFLOW (OLLAMA - FIXED VERSION)")
